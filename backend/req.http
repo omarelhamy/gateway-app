@@ -1,0 +1,4 @@
+@local=http://localhost:3000
+
+POST {{local}}/api/gateways
+Content-Type: application/json

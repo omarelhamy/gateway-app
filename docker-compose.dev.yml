@@ -1,0 +1,95 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database for Development
+  postgres:
+    image: postgres:15-alpine
+    container_name: gateway_postgres_dev
+    environment:
+      POSTGRES_USER: ${DB_USERNAME:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_DB: ${DB_NAME:-gateway_db_dev}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8"
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+      - ./docker/postgres/init-scripts:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - gateway_dev_network
+    restart: unless-stopped
+
+  # Gateway Manager Backend (Development)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+      target: development
+    container_name: gateway_backend_dev
+    environment:
+      - NODE_ENV=development
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USERNAME=${DB_USERNAME:-postgres}
+      - DB_PASSWORD=${DB_PASSWORD:-postgres}
+      - DB_NAME=${DB_NAME:-gateway_db_dev}
+      - PORT=3000
+    ports:
+      - "${BACKEND_PORT:-3000}:3000"
+      - "9229:9229"  # Debug port
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+      - ./logs/backend:/app/logs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - gateway_dev_network
+    restart: unless-stopped
+    command: npm run start:dev
+
+  # Gateway Manager Frontend (Development)
+  frontend:
+    build:
+      context: ./frontend-new
+      dockerfile: Dockerfile.dev
+      target: development
+    container_name: gateway_frontend_dev
+    environment:
+      - NODE_ENV=development
+      - VITE_API_URL=http://localhost:3000
+    ports:
+      - "${FRONTEND_PORT:-5173}:5173"
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend-new:/app
+      - /app/node_modules
+      - ./logs/frontend:/app/logs
+    networks:
+      - gateway_dev_network
+    restart: unless-stopped
+    command: npm run dev
+
+volumes:
+  postgres_dev_data:
+    driver: local
+
+networks:
+  gateway_dev_network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.21.0.0/16
